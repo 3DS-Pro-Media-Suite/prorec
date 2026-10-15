@@ -1,0 +1,8 @@
+Pro Rec uses the following third-party material.
+
+Quicksand font (assets/fonts/Quicksand-Bold.ttf and data/*.bcfnt made from it)
+  Copyright 2011 The Quicksand Project Authors.
+  SIL Open Font License 1.1, see OFL.txt.
+
+zlib (zlib License), libctru, citro2d and citro3d (zlib License)
+  Linked into the binaries under their licences.
