@@ -17,11 +17,18 @@
 #define DEVELOP_CORE_OLD_3DS 1
 #define DEVELOP_PRIORITY_OFFSET 2 // runs after the main thread: the worker yields to it
 #define RESULT_MESSAGE_MAX 90 // leaves room for "; NR .. dB; .. s" in the take's result
+#define DONE_RING_SIZE 4 // ended jobs the main loop has not picked up yet
 
 typedef struct {
 	int id;
 	DevelopParams params;
 } DevelopJob;
+
+typedef struct {
+	int id;
+	bool ok;
+	char message[DEVELOP_MESSAGE_SIZE];
+} DevelopDone;
 
 typedef struct {
 	DevelopJob jobs[DEVELOP_QUEUE_SIZE];
@@ -31,9 +38,9 @@ typedef struct {
 	_Atomic bool running;
 	_Atomic int currentId; // take being developed, 0 = none
 	DevelopState state;
-	_Atomic int doneId; // set when a job ends (the main loop picks it up)
-	bool doneOk;
-	char doneMessage[DEVELOP_MESSAGE_SIZE];
+	DevelopDone done[DONE_RING_SIZE]; // oldest first from doneFirst, for the main loop to pick up
+	int doneFirst;
+	int doneCount;
 	TakeMeta jobMeta; // the worker's copy of the current take's meta
 } DevelopQueue;
 
@@ -59,11 +66,13 @@ bool develop_queue_has(int id)
 	return queued;
 }
 
-// Takes the first job off the queue and makes it the current one. False when there is none.
+// Takes the first job off the queue and makes it the current one. False when there is none, or when the
+// done ring has no room for its result yet.
 static bool pop_job(DevelopJob *job)
 {
 	LightLock_Lock(&g_developQueue.lock);
-	bool found = g_developQueue.count != 0 && g_developQueue.running;
+	bool doneHasRoom = g_developQueue.doneCount < DONE_RING_SIZE;
+	bool found = g_developQueue.count != 0 && g_developQueue.running && doneHasRoom;
 	if (found) {
 		*job = g_developQueue.jobs[0];
 		memmove(g_developQueue.jobs, g_developQueue.jobs + 1,
@@ -124,13 +133,16 @@ static bool develop_job(const DevelopJob *job)
 	return ok;
 }
 
+// pop_job left room in the done ring for this result.
 static void finish_job(int id, bool ok)
 {
 	LightLock_Lock(&g_developQueue.lock);
-	snprintf(g_developQueue.doneMessage, sizeof g_developQueue.doneMessage, "%s",
-	         g_developQueue.state.message);
-	g_developQueue.doneOk = ok;
-	g_developQueue.doneId = id;
+	int slot = (g_developQueue.doneFirst + g_developQueue.doneCount) % DONE_RING_SIZE;
+	DevelopDone *done = &g_developQueue.done[slot];
+	done->id = id;
+	done->ok = ok;
+	snprintf(done->message, sizeof done->message, "%s", g_developQueue.state.message);
+	g_developQueue.doneCount++;
 	g_developQueue.currentId = 0;
 	LightLock_Unlock(&g_developQueue.lock);
 }
@@ -200,17 +212,19 @@ int develop_queue_progress(void)
 	return g_developQueue.state.progress;
 }
 
-// The message is copied under the lock: the worker may finish the next job meanwhile.
+// The oldest result first. It is copied under the lock: the worker may finish the next job meanwhile.
 bool develop_queue_take_done(int *id, bool *ok, char *message, size_t messageSize)
 {
-	if (!g_developQueue.doneId) {
-		return false;
-	}
 	LightLock_Lock(&g_developQueue.lock);
-	*id = g_developQueue.doneId;
-	*ok = g_developQueue.doneOk;
-	snprintf(message, messageSize, "%s", g_developQueue.doneMessage);
-	g_developQueue.doneId = 0;
+	bool found = g_developQueue.doneCount != 0;
+	if (found) {
+		const DevelopDone *done = &g_developQueue.done[g_developQueue.doneFirst];
+		*id = done->id;
+		*ok = done->ok;
+		snprintf(message, messageSize, "%s", done->message);
+		g_developQueue.doneFirst = (g_developQueue.doneFirst + 1) % DONE_RING_SIZE;
+		g_developQueue.doneCount--;
+	}
 	LightLock_Unlock(&g_developQueue.lock);
-	return true;
+	return found;
 }

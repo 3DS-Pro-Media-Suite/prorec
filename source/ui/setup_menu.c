@@ -229,9 +229,7 @@ static void run_action(RowAction action, bool *quit)
 // An action row: greyed out, or done.
 static void run_action_row(const SettingRow *row, bool *quit)
 {
-	const char *disabledReason = setting_edit_disabled_reason(row);
-	if (disabledReason) {
-		toast_warning("%s", disabledReason);
+	if (setting_edit_refuse_disabled(row)) {
 		return;
 	}
 	run_action(row->action, quit);

@@ -4,7 +4,6 @@
 #include "setting_edit.h"
 #include "setting_row.h"
 #include "settings.h"
-#include "toast.h"
 
 // Up to PICKER_ONE_COLUMN_MAX values stand in one column, up to PICKER_TWO_COLUMNS_MAX in two, more in three.
 #define PICKER_ONE_COLUMN_MAX 6
@@ -105,12 +104,7 @@ void picker_draw(void)
 
 void picker_open(const SettingRow *row)
 {
-	if (row->kind == ROW_ACTION) {
-		return;
-	}
-	const char *disabledReason = setting_edit_disabled_reason(row);
-	if (disabledReason) {
-		toast_warning("%s", disabledReason);
+	if (row->kind == ROW_ACTION || setting_edit_refuse_disabled(row)) {
 		return;
 	}
 	g_pickerRow = row;
@@ -122,9 +116,7 @@ static void choose_value(int index)
 	const SettingRow *row = g_pickerRow;
 	g_pickerRow = NULL;
 	// A take can start while the picker is open.
-	const char *disabledReason = setting_edit_disabled_reason(row);
-	if (disabledReason) {
-		toast_warning("%s", disabledReason);
+	if (setting_edit_refuse_disabled(row)) {
 		return;
 	}
 	s8 *value = setting_row_field(row, &g_settings);

@@ -11,8 +11,9 @@
 bool take_writer_start(const char *path, u64 fromSample); // fromSample may lie in the past (pre-record)
 void take_writer_pause(u64 atSample);
 bool take_writer_resume(u64 atSample); // false until the writer has reached the last pause: try again
-// Writes up to atSample, adds the markers and closes the file; false when the file had trouble.
-bool take_writer_stop(u64 atSample);
+// Writes up to atSample, adds the markers and closes the file; false when the file had trouble. frames gets
+// the samples in the finished file.
+bool take_writer_stop(u64 atSample, u64 *frames);
 bool take_writer_is_active(void);
 bool take_writer_is_paused(void);
 u64 take_writer_frames(void); // samples in the file so far (written and still to write)

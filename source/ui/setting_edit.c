@@ -25,6 +25,15 @@ const char *setting_edit_disabled_reason(const SettingRow *row)
 	return NULL;
 }
 
+bool setting_edit_refuse_disabled(const SettingRow *row)
+{
+	const char *disabledReason = setting_edit_disabled_reason(row);
+	if (disabledReason) {
+		toast_warning("%s", disabledReason);
+	}
+	return disabledReason != NULL;
+}
+
 // A clean-up setting that the presets set.
 static bool sets_preset_field(const SettingRow *row)
 {
@@ -65,12 +74,7 @@ static int next_preset(int preset, int direction)
 // The presets and most settings go round; the gain stops at its ends.
 void setting_edit_step(const SettingRow *row, int direction)
 {
-	if (row->kind == ROW_ACTION) {
-		return;
-	}
-	const char *disabledReason = setting_edit_disabled_reason(row);
-	if (disabledReason) {
-		toast_warning("%s", disabledReason);
+	if (row->kind == ROW_ACTION || setting_edit_refuse_disabled(row)) {
 		return;
 	}
 	s8 *value = setting_row_field(row, &g_settings);

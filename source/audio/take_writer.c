@@ -218,8 +218,9 @@ bool take_writer_resume(u64 atSample)
 	return canResume;
 }
 
-bool take_writer_stop(u64 atSample)
+bool take_writer_stop(u64 atSample, u64 *frames)
 {
+	*frames = 0;
 	if (!g_active) {
 		return false;
 	}
@@ -233,6 +234,7 @@ bool take_writer_stop(u64 atSample)
 	threadJoin(g_writerThread, U64_MAX);
 	threadFree(g_writerThread);
 	g_writerThread = NULL;
+	*frames = take_writer_frames();
 	lock_state();
 	int markerCount = g_markerCount;
 	unlock_state();
@@ -320,42 +322,42 @@ static s64 sample_file_position(u64 sample)
 	return filePosition;
 }
 
-void take_writer_add_marker(u64 sample)
+static void add_sample_position(u32 *list, int *count, int capacity, u64 sample)
 {
 	s64 filePosition = sample_file_position(sample);
 	if (filePosition < 0) {
 		return;
 	}
 	lock_state();
-	append_position(g_markers, &g_markerCount, TAKE_WRITER_MAX_MARKERS, (u32)filePosition);
+	append_position(list, count, capacity, (u32)filePosition);
 	unlock_state();
+}
+
+void take_writer_add_marker(u64 sample)
+{
+	add_sample_position(g_markers, &g_markerCount, TAKE_WRITER_MAX_MARKERS, sample);
 }
 
 void take_writer_add_event(u64 sample)
 {
-	s64 filePosition = sample_file_position(sample);
-	if (filePosition < 0) {
-		return;
-	}
+	add_sample_position(g_events, &g_eventCount, TAKE_WRITER_MAX_EVENTS, sample);
+}
+
+static int copy_positions(const u32 *list, const int *count, u32 *out, int max)
+{
 	lock_state();
-	append_position(g_events, &g_eventCount, TAKE_WRITER_MAX_EVENTS, (u32)filePosition);
+	int copied = *count < max ? *count : max;
+	memcpy(out, list, copied * sizeof(u32));
 	unlock_state();
+	return copied;
 }
 
 int take_writer_markers(u32 *out, int max)
 {
-	lock_state();
-	int count = g_markerCount < max ? g_markerCount : max;
-	memcpy(out, g_markers, count * sizeof(u32));
-	unlock_state();
-	return count;
+	return copy_positions(g_markers, &g_markerCount, out, max);
 }
 
 int take_writer_events(u32 *out, int max)
 {
-	lock_state();
-	int count = g_eventCount < max ? g_eventCount : max;
-	memcpy(out, g_events, count * sizeof(u32));
-	unlock_state();
-	return count;
+	return copy_positions(g_events, &g_eventCount, out, max);
 }

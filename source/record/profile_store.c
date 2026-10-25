@@ -1,4 +1,5 @@
 #include "profile_store.h"
+#include <3ds.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include "app.h"
@@ -8,14 +9,19 @@
 
 static NoiseProfile *g_profiles[MIC_GAIN_MAX + 1]; // indexed by gain, NULL when not learned
 static int g_profilesVersion; // changes whenever g_profiles does
+// The develop thread copies profiles while the main thread may learn or forget them. Only the main thread
+// changes g_profiles, so its own reads need no lock.
+static LightLock g_profilesLock;
 
 void profile_store_path(int gain, char *path, size_t pathSize)
 {
 	snprintf(path, pathSize, NOISE_PROFILE_DIR "/g%03d.bin", gain);
 }
 
+// Runs once at start-up, before the develop thread.
 void profile_store_load_all(void)
 {
+	LightLock_Init(&g_profilesLock);
 	for (int gain = 0; gain <= MIC_GAIN_MAX; gain++) {
 		char path[APP_PATH_SIZE];
 		profile_store_path(gain, path, sizeof path);
@@ -58,11 +64,15 @@ int profile_store_nearest(int gain)
 
 const NoiseProfile *profile_store_for_gain(int gain, NoiseProfile *storage)
 {
+	LightLock_Lock(&g_profilesLock);
 	int nearest = profile_store_nearest(gain);
+	if (nearest >= 0) {
+		*storage = *g_profiles[nearest];
+	}
+	LightLock_Unlock(&g_profilesLock);
 	if (nearest < 0) {
 		return NULL;
 	}
-	*storage = *g_profiles[nearest];
 	if (nearest != gain) {
 		noise_profile_regain(storage, mic_gain_db(nearest), mic_gain_db(gain));
 	}
@@ -79,8 +89,10 @@ void profile_store_forget_all(void)
 		char path[APP_PATH_SIZE];
 		profile_store_path(gain, path, sizeof path);
 		remove(path);
+		LightLock_Lock(&g_profilesLock);
 		free(g_profiles[gain]);
 		g_profiles[gain] = NULL;
+		LightLock_Unlock(&g_profilesLock);
 		forgotten++;
 	}
 	g_profilesVersion++;
@@ -89,12 +101,14 @@ void profile_store_forget_all(void)
 
 void profile_store_set(int gain, const NoiseProfile *profile)
 {
+	LightLock_Lock(&g_profilesLock);
 	if (!g_profiles[gain]) {
 		g_profiles[gain] = malloc(sizeof *profile);
 	}
 	if (g_profiles[gain]) {
 		*g_profiles[gain] = *profile;
 	}
+	LightLock_Unlock(&g_profilesLock);
 	g_profilesVersion++;
 }
 

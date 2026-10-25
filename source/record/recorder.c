@@ -213,9 +213,10 @@ static void recorder_stop(void)
 	}
 	u64 stopSample = mic_total_samples();
 	take_writer_add_event(stopSample); // the stop press
-	u64 frames = take_writer_frames();
+	u64 frames;
+	bool written = take_writer_stop(stopSample, &frames);
+	// Read only now: the writer's last pass may still lose samples.
 	u32 lostSamples = take_writer_lost_samples();
-	bool written = take_writer_stop(stopSample);
 	write_stop_meta(frames, lostSamples);
 	aptSetSleepAllowed(true);
 	aptSetHomeAllowed(true);
